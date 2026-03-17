@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>战略智慧导师 | 商镜 v3.1</title>
+    
+    <!-- 核心库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+        
+        body { font-family: 'Noto Sans SC', sans-serif; background-color: #f6f4ee; margin: 0; }
+        .font-serif-sc { font-family: 'Noto Serif SC', serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .sidebar-transition { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .active-session { background-color: #e9e7dc; color: #5c5c54; }
+        
+        /* 语音波动动画 */
+        .voice-wave { display: flex; align-items: center; gap: 2px; }
+        .wave-bar { width: 2px; height: 8px; background: #a89078; animation: wave 1s infinite; }
+        @keyframes wave { 0%, 100% { height: 4px; } 50% { height: 12px; } }
+
+        /* 麦克风呼吸灯 */
+        .mic-active { animation: mic-pulse 1.5s infinite; color: #ef4444 !important; }
+        @keyframes mic-pulse { 0% { opacity: 1; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.1); } 100% { opacity: 1; transform: scale(1); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 静态图标组件 (确保 100% 显示) ---
+        const MicIcon = ({ active }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={active ? "mic-active" : ""}>
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" x2="12" y1="19" y2="22"/>
+            </svg>
+        );
+
+        const App = () => {
+            // --- 状态管理 ---
+            const [sessions, setSessions] = useState(() => {
+                const saved = localStorage.getItem('shangjing_sessions_v3');
+                return saved ? JSON.parse(saved) : [{
+                    id: Date.now(),
+                    title: '新战略对话',
+                    messages: [{ role: 'assistant', content: '您好。我是您的战略导师。在开始深度分析之前，我需要了解您的背景行业、项目现状以及核心目标。请问您目前所处的行业是什么？' }],
+                    canvasData: { background: '导师正在倾听...', conflict: '等待采集...', risk: '尚未开启...', positioning: '待推演...' }
+                }];
+            });
+            const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+            const [isSidebarOpen, setSidebarOpen] = useState(true);
+            const [input, setInput] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [isListening, setIsListening] = useState(false);
+            const [isSpeaking, setIsSpeaking] = useState(false);
+            const [activeTab, setActiveTab] = useState('chat');
+
+            const scrollRef = useRef(null);
+            const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+
+            // --- 持久化存储 ---
+            useEffect(() => {
+                localStorage.setItem('shangjing_sessions_v3', JSON.stringify(sessions));
+            }, [sessions]);
+
+            useEffect(() => {
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                if (window.lucide) window.lucide.createIcons();
+            }, [currentSession.messages, activeTab]);
+
+            // --- 语音功能 ---
+            const speak = (text) => {
+                if (!window.speechSynthesis) return;
+                window.speechSynthesis.cancel();
+                const msg = new SpeechSynthesisUtterance(text);
+                msg.lang = 'zh-CN';
+                msg.rate = 1.0;
+                msg.onstart = () => setIsSpeaking(true);
+                msg.onend = () => setIsSpeaking(false);
+                window.speechSynthesis.speak(msg);
+            };
+
+            const toggleListening = () => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (!SpeechRecognition) {
+                    alert("您的浏览器不支持语音识别。请使用 Chrome 浏览器。");
+                    return;
+                }
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'zh-CN';
+                
+                if (!isListening) {
+                    recognition.start();
+                    setIsListening(true);
+                } else {
+                    recognition.stop();
+                    setIsListening(false);
+                }
+
+                recognition.onresult = (event) => {
+                    const text = event.results[0][0].transcript;
+                    setInput(text);
+                    setIsListening(false);
+                };
+                recognition.onerror = () => setIsListening(false);
+                recognition.onend = () => setIsListening(false);
+            };
+
+            // --- 对话逻辑 ---
+            const handleSend = () => {
+                if (!input.trim() || isTyping) return;
+                const userText = input;
+                
+                const updatedSessions = sessions.map(s => {
+                    if (s.id === currentSessionId) {
+                        const newMessages = [...s.messages, { role: 'user', content: userText }];
+                        const newTitle = s.messages.length === 1 ? userText.slice(0, 10) : s.title;
+                        return { ...s, messages: newMessages, title: newTitle };
+                    }
+                    return s;
+                });
+                
+                setSessions(updatedSessions);
+                setInput('');
+                setIsTyping(true);
+
+                setTimeout(() => {
+                    const reply = `感知到 lanlan 关于“${userText}”的观点。从战略维度分析，这触及了资源分配的核心。您认为在当前模型下，最难逾越的壁垒是什么？`;
+                    const sessionsWithReply = updatedSessions.map(s => {
+                        if (s.id === currentSessionId) {
+                            return { 
+                                ...s, 
+                                messages: [...s.messages, { role: 'assistant', content: reply }],
+                                canvasData: { ...s.canvasData, background: userText }
+                            };
+                        }
+                        return s;
+                    });
+                    setSessions(sessionsWithReply);
+                    setIsTyping(false);
+                    speak(reply);
+                }, 1000);
+            };
+
+            const createNewSession = () => {
+                const newId = Date.now();
+                const newSession = {
+                    id: newId,
+                    title: '新战略推演',
+                    messages: [{ role: 'assistant', content: '新的推演室已就绪。请描述您的商业切入点。' }],
+                    canvasData: { background: '倾听中...', conflict: '待辩证...', risk: '待评估...', positioning: '待推演...' }
+                };
+                setSessions([newSession, ...sessions]);
+                setCurrentSessionId(newId);
+            };
+
+            const deleteSession = (e, id) => {
+                e.stopPropagation();
+                if (sessions.length === 1) return;
+                const filtered = sessions.filter(s => s.id !== id);
+                setSessions(filtered);
+                if (currentSessionId === id) setCurrentSessionId(filtered[0].id);
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden text-[#4a4a4a]">
+                    
+                    {/* 侧边栏 */}
+                    <aside className={`sidebar-transition fixed lg:static z-40 h-full bg-[#efeddf] border-r border-[#dcd9cc] flex flex-col ${isSidebarOpen ? 'w-72' : 'w-0 overflow-hidden'}`}>
+                        <div className="p-6">
+                            <button 
+                                onClick={createNewSession}
+                                className="w-full py-3 px-4 rounded-xl border-2 border-dashed border-[#b5b5ad] text-[#8a8a80] hover:border-[#a89078] hover:text-[#a89078] transition-all flex items-center justify-center gap-2 text-sm font-bold"
+                            >
+                                <i data-lucide="plus" className="w-4 h-4"></i> 新建推演
+                            </button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto px-4 space-y-2 no-scrollbar">
+                            <p className="px-2 text-[10px] text-[#b5b5ad] uppercase tracking-widest font-bold mb-4">历史记录分类</p>
+                            {sessions.map(s => (
+                                <div 
+                                    key={s.id}
+                                    onClick={() => setCurrentSessionId(s.id)}
+                                    className={`group p-4 rounded-xl cursor-pointer flex items-center justify-between transition-all ${currentSessionId === s.id ? 'active-session shadow-sm' : 'text-[#8a8a80] hover:bg-[#e5e3d3]'}`}
+                                >
+                                    <div className="flex items-center gap-3 truncate">
+                                        <i data-lucide="message-circle" className="w-4 h-4 shrink-0"></i>
+                                        <span className="text-sm truncate font-medium">{s.title}</span>
+                                    </div>
+                                    <button onClick={(e) => deleteSession(e, s.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500">
+                                        <i data-lucide="trash-2" className="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="p-6 border-t border-[#dcd9cc] flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-[#a89078] flex items-center justify-center text-white text-xs font-bold">L</div>
+                            <span className="text-xs font-bold text-[#b5b5ad] tracking-widest">lanlan 用户空间</span>
+                        </div>
+                    </aside>
+
+                    {/* 内容区 */}
+                    <main className="flex-1 flex flex-col min-w-0 bg-[#f6f4ee] relative">
+                        <header className="px-6 py-5 flex justify-between items-center border-b border-[#e5e1d5]">
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-[#e9e7dc] rounded-lg text-[#a89078]">
+                                    <i data-lucide={isSidebarOpen ? "chevron-left" : "menu"} className="w-5 h-5"></i>
+                                </button>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-lg font-serif-sc tracking-[0.2em] text-[#5c5c54]">战略智慧导师</h1>
+                                    {isSpeaking && (
+                                        <div className="voice-wave">
+                                            <div className="wave-bar" style={{animationDelay:'0.1s'}}></div>
+                                            <div className="wave-bar" style={{animationDelay:'0.3s'}}></div>
+                                            <div className="wave-bar" style={{animationDelay:'0.5s'}}></div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex bg-[#e9e7dc] p-1 rounded-full text-[11px]">
+                                <button onClick={()=>setActiveTab('chat')} className={`px-5 py-1.5 rounded-full transition-all ${activeTab==='chat'?'bg-white shadow-sm':'text-[#a0a096]'}`}>对话</button>
+                                <button onClick={()=>setActiveTab('canvas')} className={`px-5 py-1.5 rounded-full transition-all ${activeTab==='canvas'?'bg-white shadow-sm':'text-[#a0a096]'}`}>画布</button>
+                            </div>
+                        </header>
+
+                        <div className="flex-1 flex flex-col overflow-hidden relative">
+                            {/* 聊天内容 */}
+                            <div className={`flex-1 overflow-y-auto px-6 lg:px-20 py-10 space-y-12 no-scrollbar ${activeTab === 'canvas' ? 'hidden lg:block' : ''}`}>
+                                {currentSession.messages.map((msg, idx) => (
+                                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`flex gap-5 max-w-[92%] lg:max-w-3xl ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm ${msg.role === 'assistant' ? 'bg-stone-800 text-stone-100' : 'hidden'}`}><i data-lucide="scroll-text" className="w-5 h-5"></i></div>
+                                            <div className={`mt-1.5 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                                                <div className={`text-[15px] leading-relaxed tracking-wide ${msg.role === 'user' ? 'text-[#8a8a80]' : 'text-[#4a4a4a] font-serif-sc italic'}`}>
+                                                    {msg.role === 'user' && <span className="text-[12px] font-sans mr-4 opacity-40 italic">lanlan</span>}
+                                                    {msg.content}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                {isTyping && <div className="ml-14 flex gap-1"><div className="w-1 h-1 bg-[#a89078] rounded-full animate-bounce"></div><div className="w-1 h-1 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.2s]"></div><div className="w-1 h-1 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.4s]"></div></div>}
+                                <div ref={scrollRef} />
+                            </div>
+
+                            {/* 画布内容 (手机端) */}
+                            {activeTab === 'canvas' && (
+                                <div className="lg:hidden flex-1 overflow-y-auto p-12 space-y-10">
+                                    <CanvasCard icon="refresh-cw" title="背景核心" content={currentSession.canvasData.background} />
+                                    <CanvasCard icon="zap" title="矛盾识别" content={currentSession.canvasData.conflict} />
+                                </div>
+                            )}
+
+                            {/* 固定侧边画布 (桌面端) */}
+                            <div className={`hidden lg:flex w-[400px] bg-white border-l border-[#f0eee0] flex-col shadow-2xl absolute right-0 top-0 h-full transform transition-transform duration-500 ${activeTab === 'canvas' ? 'translate-x-0' : 'translate-x-full'}`}>
+                                <div className="p-12 space-y-16 overflow-y-auto no-scrollbar">
+                                    <h2 className="text-3xl font-serif-sc text-[#5c5c54]">战略画布</h2>
+                                    <div className="space-y-12">
+                                        <CanvasCard icon="refresh-cw" title="背景核心" content={currentSession.canvasData.background} />
+                                        <CanvasCard icon="zap" title="矛盾识别" content={currentSession.canvasData.conflict} />
+                                        <CanvasCard icon="shield-alert" title="风险评估" content={currentSession.canvasData.risk} />
+                                        <CanvasCard icon="search" title="执行定位" content={currentSession.canvasData.positioning} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 输入底栏 */}
+                            <div className="px-6 lg:px-20 pb-10 mt-auto">
+                                <div className="max-w-4xl mx-auto relative group">
+                                    <div className={`bg-white border-2 rounded-2xl p-2 transition-all flex items-center shadow-sm ${isListening ? 'border-red-400 ring-4 ring-red-50' : 'border-[#e5e1d5]'}`}>
+                                        <button 
+                                            onClick={toggleListening}
+                                            className={`p-4 transition-all rounded-xl hover:bg-stone-50 ${isListening ? 'text-red-500' : 'text-[#d0cec1] hover:text-[#a89078]'}`}
+                                            title="语音对话"
+                                        >
+                                            <MicIcon active={isListening} />
+                                        </button>
+                                        <textarea 
+                                            className="w-full bg-transparent border-none focus:ring-0 px-4 py-4 text-sm resize-none h-14 no-scrollbar"
+                                            placeholder={isListening ? "正在倾听 lanlan 的声音..." : "在此输入您的见解..."}
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                                        />
+                                        <button onClick={handleSend} className="p-4 text-[#d0cec1] hover:text-[#a89078] transition-colors"><i data-lucide="arrow-up-right" className="w-7 h-7"></i></button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const CanvasCard = ({ icon, title, content }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
+            return (
+                <div className="flex gap-6 items-start">
+                    <div className="w-12 h-12 rounded-full border border-[#f0eee0] flex items-center justify-center shrink-0 text-[#c5c5bd] bg-white"><i data-lucide={icon} className="w-5 h-5"></i></div>
+                    <div className="flex-1 pt-1"><h4 className="text-[10px] font-bold text-[#b5b5ad] uppercase tracking-[0.2em] mb-2">{title}</h4><p className="text-[13px] text-[#8a8a80] font-serif-sc italic leading-relaxed">{content}</p></div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
