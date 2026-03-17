@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>战略智慧导师</title>
+    
+    <!-- 核心库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+        
+        body { 
+            font-family: 'Noto Sans SC', sans-serif; 
+            background-color: #f6f4ee; 
+            margin: 0; 
+            color: #4a4a4a;
+        }
+        .font-serif-sc { font-family: 'Noto Serif SC', serif; }
+        
+        /* 滚动条隐藏 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 侧边栏颜色：温暖的米灰色，不发黄，与背景呼应 */
+        .sidebar-bg { background-color: #f1efe6; }
+        .active-session { background-color: #ffffff; border: 1px solid #e5e1d5; color: #5c5c54; }
+        
+        /* 布局修正 */
+        .transition-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .message-fade { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* 画布卡片回归原始高级感 */
+        .canvas-card {
+            background: #ffffff;
+            border: 1px solid #f0eee0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const App = () => {
+            // --- 状态管理 ---
+            const [sessions, setSessions] = useState(() => {
+                const saved = localStorage.getItem('wisdom_mentor_classic_v2');
+                return saved ? JSON.parse(saved) : [{
+                    id: Date.now(),
+                    title: '新战略对话',
+                    messages: [{ 
+                        role: 'assistant', 
+                        content: '您好。我是您的战略导师。在开始深度分析之前，我需要按顺序了解您的背景。请问您目前所处的行业是什么？' 
+                    }],
+                    canvasData: { 
+                        industry: '导师正在倾听您的描述...', 
+                        conflict: '等待信息采集以进行深度辩证...', 
+                        risk: '压力测试尚未开启...',
+                        positioning: '待推演博弈路径...'
+                    }
+                }];
+            });
+            const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+            const [isSidebarOpen, setSidebarOpen] = useState(true);
+            const [input, setInput] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [activeTab, setActiveTab] = useState('chat'); // 'chat' or 'canvas'
+
+            const scrollRef = useRef(null);
+            const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+
+            // --- 数据持久化 ---
+            useEffect(() => {
+                localStorage.setItem('wisdom_mentor_classic_v2', JSON.stringify(sessions));
+            }, [sessions]);
+
+            // --- 自动滚动与图标刷新 ---
+            useEffect(() => {
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                if (window.lucide) window.lucide.createIcons();
+            }, [currentSession.messages, activeTab]);
+
+            // --- 对话引导逻辑 ---
+            const handleSend = () => {
+                if (!input.trim() || isTyping) return;
+                const userText = input;
+                
+                const updatedSessions = sessions.map(s => {
+                    if (s.id === currentSessionId) {
+                        const newMessages = [...s.messages, { role: 'user', content: userText }];
+                        const newTitle = s.messages.length === 1 ? userText.slice(0, 10) : s.title;
+                        return { ...s, messages: newMessages, title: newTitle };
+                    }
+                    return s;
+                });
+                setSessions(updatedSessions);
+                setInput('');
+                setIsTyping(true);
+
+                // 引导回复逻辑
+                setTimeout(() => {
+                    let reply = "";
+                    let updatedCanvas = { ...currentSession.canvasData };
+
+                    if (currentSession.messages.length === 1) {
+                        reply = `了解。针对 ${userText} 行业，其底层逻辑往往在于资源与需求的错配。为了更精准地协助您，请问您目前在该行业中面临的最核心问题或阻碍是什么？`;
+                        updatedCanvas.industry = userText;
+                    } else if (currentSession.messages.length === 3) {
+                        reply = "我已感知到这种阻碍。这种现状持续了多久？在您之前的尝试中，哪一个变量是您觉得最难控制的？";
+                        updatedCanvas.conflict = userText;
+                    } else {
+                        reply = "这是一个深刻的洞察。在战略演练中，我们必须考虑到最极端的风险。如果您的竞争对手采取降维打击，您的备选方案是什么？";
+                        updatedCanvas.risk = "策略单一性带来的脆弱性评估中";
+                    }
+
+                    const sessionsWithReply = updatedSessions.map(s => {
+                        if (s.id === currentSessionId) {
+                            return { 
+                                ...s, 
+                                messages: [...s.messages, { role: 'assistant', content: reply }],
+                                canvasData: updatedCanvas
+                            };
+                        }
+                        return s;
+                    });
+                    setSessions(sessionsWithReply);
+                    setIsTyping(false);
+                }, 1200);
+            };
+
+            const createNewSession = () => {
+                const newId = Date.now();
+                const newSession = {
+                    id: newId,
+                    title: '新战略对话',
+                    messages: [{ role: 'assistant', content: '您好。新的推演室已就绪。请问您目前所处的行业是什么？' }],
+                    canvasData: { industry: '等待输入行业...', conflict: '等待描述现状...', risk: '评估未开启...', positioning: '待推演...' }
+                };
+                setSessions([newSession, ...sessions]);
+                setCurrentSessionId(newId);
+                if (window.innerWidth < 768) setSidebarOpen(false);
+            };
+
+            const deleteSession = (e, id) => {
+                e.stopPropagation();
+                if (sessions.length === 1) return;
+                const filtered = sessions.filter(s => s.id !== id);
+                setSessions(filtered);
+                if (currentSessionId === id) setCurrentSessionId(filtered[0].id);
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden">
+                    
+                    {/* 左侧侧边栏 */}
+                    <aside className={`sidebar-transition fixed lg:static z-50 h-full sidebar-bg border-r border-[#e5e1d5] flex flex-col ${isSidebarOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full lg:w-0'}`}>
+                        <div className="p-5">
+                            <button 
+                                onClick={createNewSession}
+                                className="w-full py-2.5 px-4 rounded-xl border-2 border-dashed border-[#b5b5ad] text-[#8a8a80] hover:border-[#a89078] hover:text-[#a89078] transition-all flex items-center justify-center gap-2 text-sm font-bold"
+                            >
+                                <i data-lucide="plus" className="w-4 h-4"></i> 新建推演
+                            </button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto px-4 space-y-2 no-scrollbar">
+                            <p className="px-2 text-[10px] text-[#b5b5ad] uppercase tracking-widest font-bold mb-4 mt-2">历史记录分类</p>
+                            {sessions.map(s => (
+                                <div 
+                                    key={s.id}
+                                    onClick={() => setCurrentSessionId(s.id)}
+                                    className={`group p-4 rounded-xl cursor-pointer flex items-center justify-between transition-all ${currentSessionId === s.id ? 'active-session shadow-sm' : 'text-[#8a8a80] hover:bg-white/40'}`}
+                                >
+                                    <div className="flex items-center gap-3 truncate">
+                                        <i data-lucide="message-square" className="w-4 h-4 shrink-0"></i>
+                                        <span className="text-sm truncate font-medium">{s.title}</span>
+                                    </div>
+                                    <button onClick={(e) => deleteSession(e, s.id)} className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500">
+                                        <i data-lucide="x" className="w-3.5 h-3.5"></i>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="p-6 border-t border-[#e5e1d5] flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-[#a89078] flex items-center justify-center text-white text-xs font-bold">L</div>
+                            <span className="text-xs font-bold text-[#b5b5ad] tracking-widest uppercase">lanlan 用户空间</span>
+                        </div>
+                    </aside>
+
+                    {/* 主内容 */}
+                    <main className="flex-1 flex flex-col min-w-0 relative">
+                        
+                        {/* 顶栏 */}
+                        <header className="px-6 py-5 flex justify-between items-center border-b border-[#e5e1d5] bg-[#f6f4ee]/80 backdrop-blur-md sticky top-0 z-40">
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2 hover:bg-[#e9e7dc] rounded-lg text-[#a89078]">
+                                    <i data-lucide={isSidebarOpen ? "chevron-left" : "menu"} className="w-5 h-5"></i>
+                                </button>
+                                <div>
+                                    <h1 className="text-xl font-serif-sc tracking-[0.2em] text-[#5c5c54] uppercase">战略智慧导师</h1>
+                                    <p className="text-[10px] text-[#b5b5ad] mt-1 uppercase tracking-widest">Version 2.0 • Classic Khaki</p>
+                                </div>
+                            </div>
+                            
+                            {/* 标签切换 */}
+                            <div className="flex bg-[#e9e7dc] p-1 rounded-full border border-[#dcd9cc]">
+                                <button 
+                                    onClick={() => setActiveTab('chat')}
+                                    className={`px-6 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'chat' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}
+                                >
+                                    对话
+                                </button>
+                                <button 
+                                    onClick={() => setActiveTab('canvas')}
+                                    className={`px-6 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'canvas' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}
+                                >
+                                    画布
+                                </button>
+                            </div>
+                        </header>
+
+                        {/* 核心展示区 */}
+                        <div className="flex-1 flex overflow-hidden">
+                            
+                            {/* 对话窗口 - 严格修正手机端重叠 */}
+                            <div className={`flex-1 flex flex-col transition-all h-full ${activeTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 lg:px-24 py-10 space-y-12 no-scrollbar">
+                                    {currentSession.messages.map((msg, idx) => (
+                                        <div key={idx} className={`flex message-fade ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`flex gap-6 max-w-[92%] lg:max-w-3xl ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${msg.role === 'assistant' ? 'bg-[#2a2a2a] text-[#f6f4ee]' : 'hidden'}`}>
+                                                    <i data-lucide="shield-check" className="w-5 h-5"></i>
+                                                </div>
+                                                <div className={`mt-1.5 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                                                    <div className={`text-[15px] leading-relaxed tracking-wide ${msg.role === 'user' ? 'text-[#8a8a80]' : 'text-[#4a4a4a] font-serif-sc italic'}`}>
+                                                        {msg.role === 'user' && <span className="text-[12px] font-sans mr-4 opacity-40 italic">lanlan</span>}
+                                                        {msg.content}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {isTyping && (
+                                        <div className="ml-16 flex gap-2 items-center">
+                                            <div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce"></div>
+                                            <div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                                            <div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                                        </div>
+                                    )}
+                                    <div className="h-10"></div>
+                                </div>
+
+                                {/* 输入底栏 */}
+                                <div className="px-6 lg:px-24 pb-10">
+                                    <div className="max-w-4xl mx-auto relative group">
+                                        <div className="bg-white border border-[#e5e1d5] rounded-2xl p-2 shadow-sm focus-within:border-[#a89078] transition-all flex items-end">
+                                            <textarea 
+                                                className="w-full bg-transparent border-none focus:ring-0 px-4 py-4 text-sm resize-none h-16 no-scrollbar"
+                                                placeholder="请告诉导师您的行业或面临的挑战..."
+                                                value={input}
+                                                onChange={(e) => setInput(e.target.value)}
+                                                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                                            />
+                                            <button onClick={handleSend} className="p-4 text-[#d0cec1] hover:text-[#a89078] transition-colors">
+                                                <i data-lucide="arrow-up-right" className="w-7 h-7"></i>
+                                            </button>
+                                        </div>
+                                        <div className="flex justify-center gap-10 mt-8 text-[10px] text-[#b5b5ad] uppercase tracking-[0.4em] font-medium opacity-60">
+                                            <span>Dialectics</span>
+                                            <span>Strategy</span>
+                                            <span>Game Theory</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 战略画布区 - 彻底分离 */}
+                            <div className={`w-full lg:w-[480px] bg-white border-l border-[#f0eee0] flex flex-col transition-all h-full ${activeTab === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div className="flex-1 overflow-y-auto p-12 lg:p-16 space-y-20 no-scrollbar">
+                                    <div>
+                                        <h2 className="text-4xl font-serif-sc text-[#5c5c54] mb-2 tracking-tight">战略推演画布</h2>
+                                        <div className="h-0.5 w-12 bg-[#5c5c54] mb-4"></div>
+                                        <p className="text-[10px] text-[#a89078] uppercase tracking-[0.3em] font-bold">The Strategic Mapping Canvas</p>
+                                    </div>
+
+                                    <div className="space-y-16">
+                                        <CanvasCard icon="globe" title="背景与核心目标" content={currentSession.canvasData.industry} />
+                                        <CanvasCard icon="zap" title="主要矛盾识别" content={currentSession.canvasData.conflict} />
+                                        <CanvasCard icon="shield-alert" title="思维漏洞与风险" content={currentSession.canvasData.risk} />
+                                        <CanvasCard icon="search" title="博弈定位与执行" content={currentSession.canvasData.positioning} />
+                                    </div>
+
+                                    <div className="mt-20 pt-8 border-t border-[#f0eee0]">
+                                        <p className="text-[10px] text-[#c5c5bd] font-serif-sc italic text-center leading-relaxed">
+                                            “凡战者，以正合，以奇胜。”
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const CanvasCard = ({ icon, title, content }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []);
+            return (
+                <div className="flex gap-8 items-start">
+                    <div className="w-14 h-14 rounded-full border border-[#f0eee0] flex items-center justify-center shrink-0 text-[#c5c5bd] bg-[#fcfcfc] shadow-sm transition-all hover:bg-[#5c5c54] hover:text-white group">
+                        <i data-lucide={icon} className="w-6 h-6" strokeWidth={1}></i>
+                    </div>
+                    <div className="flex-1 pt-1">
+                        <h4 className="text-[11px] font-bold text-[#b5b5ad] uppercase tracking-[0.2em] mb-4">{title}</h4>
+                        <p className="text-[14px] text-[#8a8a80] font-serif-sc italic leading-relaxed opacity-90">{content}</p>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
