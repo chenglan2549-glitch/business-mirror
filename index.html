@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>战略智慧导师 · 商镜</title>
+    
+    <!-- 核心驱动库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+        
+        body { 
+            font-family: 'Noto Sans SC', sans-serif; 
+            background-color: #f8f7f4; 
+            margin: 0; 
+            color: #4a4a4a;
+            -webkit-tap-highlight-color: transparent;
+            overflow: hidden;
+        }
+        .font-serif-sc { font-family: 'Noto Serif SC', serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .sidebar-bg { background-color: #f1f0e8; }
+        .active-session { background-color: #ffffff; border: 1px solid #e5e4da; color: #5c5c54; }
+        .sidebar-transition { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        
+        .message-fade { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .canvas-card {
+            background: #ffffff;
+            border: 1px solid #f0eee0;
+            padding: 1.5rem;
+            border-radius: 1.25rem;
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+        }
+
+        .file-preview { animation: scaleIn 0.2s ease-out; }
+        @keyframes scaleIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        
+        .typing-dot { width: 4px; height: 4px; background: #a89078; border-radius: 50%; display: inline-block; animation: typing 1s infinite ease-in-out; }
+        @keyframes typing { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        /**
+         * 密钥策略：
+         * apiKey 为环境预留。在 GitHub 运行时，优先取 customKey (localStorage)。
+         */
+        const apiKey = ""; 
+
+        // --- 经典还原图标组件 ---
+        const Icon = ({ name, size = 20, className = "" }) => {
+            const paths = {
+                compass: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8zm4.5-12.5L13.5 12 12 15.5l-3.5-4.5L12 8.5z",
+                message: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
+                plus: "M12 5v14M5 12h14",
+                send: "M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z",
+                clip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48",
+                x: "M18 6L6 18M6 6l12 12",
+                globe: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z",
+                zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+                shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
+                search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35",
+                settings: "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-1-1.72v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z",
+                file: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8"
+            };
+            return (
+                <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                    <path d={paths[name] || ""} />
+                </svg>
+            );
+        };
+
+        const SYSTEM_PROMPT = `你是一位世界级的战略导师“商镜”。
+思想内核：毛泽东辩证法（矛盾论）、孙子兵法、现代博弈论。
+任务：分析用户的商业挑战，识别核心矛盾。
+输出：请务必以严格的 JSON 格式回复（不要带 markdown 标签）：
+{"reply": "导师深刻的中文建议", "canvasUpdate": {"industry": "本质", "problem": "矛盾", "risk": "风险", "positioning": "战略"}}`;
+
+        const App = () => {
+            const [sessions, setSessions] = useState(() => {
+                const saved = localStorage.getItem('shangjing_pro_final_v100');
+                return saved ? JSON.parse(saved) : [{
+                    id: Date.now(),
+                    title: '新战略对话',
+                    messages: [{ role: 'assistant', content: '您好，lanlan。我已经为您打通了全域连接逻辑。请在左下角设置中填入 API Key，我们将开启深度战略推演。' }],
+                    canvasData: { industry: '导师感知中...', problem: '待采集矛盾...', risk: '待评估风险...', positioning: '待推演博弈...' }
+                }];
+            });
+            const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+            const [input, setInput] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [activeTab, setActiveTab] = useState('chat');
+            const [customKey, setCustomKey] = useState(localStorage.getItem('gemini_api_key_lanlan_final') || "");
+            const [showSettings, setShowSettings] = useState(false);
+            const [attachedFile, setAttachedFile] = useState(null);
+            
+            const fileInputRef = useRef(null);
+            const scrollRef = useRef(null);
+            const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+
+            useEffect(() => { localStorage.setItem('shangjing_pro_final_v100', JSON.stringify(sessions)); }, [sessions]);
+            useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [currentSession.messages, activeTab]);
+
+            const fileToBase64 = (file) => new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]);
+            });
+
+            const callGemini = async (userText, base64Data, mimeType) => {
+                const finalKey = customKey.trim() || apiKey;
+                if (!finalKey) throw new Error('MISSING_KEY');
+                
+                // 自动识别环境并决定模型名称
+                const isLocalPreview = window.location.origin.includes('github-preview');
+                const modelName = isLocalPreview ? 'gemini-2.5-flash-preview-09-2025' : 'gemini-1.5-flash';
+                
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${finalKey}`;
+                
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: `[系统预设指令] ${SYSTEM_PROMPT}\n\n[用户输入] ${userText}` },
+                            ...(base64Data ? [{ inlineData: { mimeType, data: base64Data } }] : [])
+                        ]
+                    }]
+                };
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const resData = await response.json();
+                if (!response.ok) {
+                    const errMsg = resData.error?.message || '请求失败';
+                    if (errMsg.includes('referer')) {
+                        throw new Error('网址限制拦截：请在 Google Cloud 设置中将限制地址改为 https://chenglan2549-glitch.github.io/* 并保存。');
+                    }
+                    if (errMsg.includes('not found')) {
+                        throw new Error('模型名称错误。请尝试在 AI Studio 重新生成一个针对 v1beta 的 Key。');
+                    }
+                    throw new Error(errMsg);
+                }
+                return resData;
+            };
+
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                setAttachedFile({
+                    file, name: file.name, type: file.type,
+                    preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
+                });
+            };
+
+            const handleSend = async () => {
+                if ((!input.trim() && !attachedFile) || isTyping) return;
+                const userText = input || (attachedFile ? `请分析该附件：${attachedFile.name}` : "你好");
+                const fileToProcess = attachedFile;
+                
+                const newMsg = { role: 'user', content: userText, attachment: fileToProcess ? { name: fileToProcess.name } : null };
+                const updatedSessions = sessions.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, newMsg] } : s);
+                setSessions(updatedSessions);
+                setInput(''); setAttachedFile(null); setIsTyping(true);
+
+                try {
+                    let base64 = null, mime = null;
+                    if (fileToProcess) {
+                        base64 = await fileToBase64(fileToProcess.file);
+                        mime = fileToProcess.type;
+                    }
+                    const result = await callGemini(userText, base64, mime);
+                    const aiRaw = result.candidates[0].content.parts[0].text;
+                    
+                    let aiData;
+                    try {
+                        const jsonMatch = aiRaw.match(/\{[\s\S]*\}/);
+                        aiData = JSON.parse(jsonMatch ? jsonMatch[0] : aiRaw);
+                    } catch (e) {
+                        aiData = { reply: aiRaw, canvasUpdate: {} };
+                    }
+                    
+                    setSessions(updatedSessions.map(s => s.id === currentSessionId ? { 
+                        ...s, 
+                        title: s.messages.length <= 2 ? userText.slice(0, 10) : s.title,
+                        messages: [...s.messages, { role: 'assistant', content: aiData.reply }],
+                        canvasData: { ...s.canvasData, ...aiData.canvasUpdate }
+                    } : s));
+                } catch (error) {
+                    let msg = `导师诊断：${error.message}`;
+                    if (error.message === 'MISSING_KEY') msg = "提示：请点击左下角设置图标填入 API Key。";
+                    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, { role: 'assistant', content: msg }] } : s));
+                } finally { setIsTyping(false); }
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden relative">
+                    <aside className="hidden lg:flex sidebar-bg border-r border-[#e5e1d5] flex-col w-72 h-full">
+                        <div className="p-6">
+                            <button onClick={() => {
+                                const id = Date.now();
+                                setSessions([{ id, title: '新战略', messages: [{role:'assistant', content:'战略演练室就绪。'}], canvasData: { industry: '待感知...', problem: '待识别...', risk: '待评估...', positioning: '待推演...' } }, ...sessions]);
+                                setCurrentSessionId(id);
+                            }} className="w-full py-3.5 px-4 rounded-2xl border-2 border-dashed border-[#b5b5ad] text-[#8a8a80] hover:border-[#a89078] hover:text-[#a89078] flex items-center justify-center gap-2 text-sm font-bold transition-all">
+                                <Icon name="plus" size={16} /> 新建战略对话
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 space-y-2 no-scrollbar">
+                            {sessions.map(s => (
+                                <div key={s.id} onClick={() => setCurrentSessionId(s.id)} className={`p-4 rounded-xl cursor-pointer transition-all ${currentSessionId === s.id ? 'active-session shadow-sm' : 'text-[#8a8a80] hover:bg-white/40'}`}>
+                                    <div className="flex items-center gap-3 truncate"><Icon name="message" size={16} /><span className="text-sm truncate font-medium">{s.title}</span></div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="p-8 border-t border-[#e5e1d5] flex items-center justify-between">
+                            <div className="flex items-center gap-3"><div className="w-9 h-9 rounded-full bg-[#a89078] flex items-center justify-center text-white text-[11px] font-bold shadow-inner">L</div><span className="text-xs font-bold text-[#b5b5ad] tracking-widest uppercase">LANLAN</span></div>
+                            <button onClick={() => setShowSettings(true)} className="text-[#c5c5bd] hover:text-[#a89078] transition-all"><Icon name="settings" size={20}/></button>
+                        </div>
+                    </aside>
+
+                    <main className="flex-1 flex flex-col min-w-0 h-full bg-[#f8f7f4]">
+                        <header className="px-6 py-6 flex justify-between items-center border-b border-[#e5e1d5] bg-[#f8f7f4]/80 backdrop-blur-md sticky top-0 z-30">
+                            <div className="flex items-center gap-4">
+                                <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm border border-[#e5e1d5]">
+                                    <Icon name="compass" className="text-[#a89078]" />
+                                </div>
+                                <h1 className="text-xl lg:text-2xl font-serif-sc tracking-[0.2em] text-[#5c5c54] uppercase font-bold">商 镜</h1>
+                            </div>
+                            <div className="flex bg-[#e9e7dc] p-1 rounded-full border border-[#dcd9cc]">
+                                <button onClick={() => setActiveTab('chat')} className={`px-5 lg:px-8 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'chat' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}>对话</button>
+                                <button onClick={() => setActiveTab('canvas')} className={`px-5 lg:px-8 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'canvas' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}>画布</button>
+                            </div>
+                        </header>
+
+                        <div className="flex-1 flex overflow-hidden">
+                            <div className={`flex-1 flex flex-col h-full ${activeTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 lg:px-24 py-10 space-y-12 no-scrollbar">
+                                    {currentSession.messages.map((msg, idx) => (
+                                        <div key={idx} className={`flex message-fade ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`flex gap-6 max-w-[95%] lg:max-w-3xl ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${msg.role === 'assistant' ? 'bg-[#2a2a2a] text-[#f8f7f4]' : 'bg-[#a89078] text-white'}`}>
+                                                    {msg.role === 'assistant' ? <Icon name="file" /> : <span className="text-[16px] font-bold">L</span>}
+                                                </div>
+                                                <div className={`mt-1.5 flex flex-col gap-3 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                                                    {msg.attachment && <div className="flex items-center gap-3 bg-white/50 border border-[#e5e1d5] p-3 rounded-xl shadow-sm text-xs text-[#a89078]"><Icon name="file" size={14}/> {msg.attachment.name}</div>}
+                                                    <div className={`leading-relaxed text-[16px] lg:text-[17px] ${msg.role === 'user' ? 'text-[#8a8a80] text-right' : 'text-[#4a4a4a] font-serif-sc italic text-left'}`}>{msg.content}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {isTyping && <div className="ml-16 flex gap-2"><span className="typing-dot"></span><span className="typing-dot" style={{animationDelay:'0.2s'}}></span><span className="typing-dot" style={{animationDelay:'0.4s'}}></span></div>}
+                                </div>
+                                
+                                <div className="px-6 lg:px-24 pb-12">
+                                    {attachedFile && (
+                                        <div className="max-w-4xl mx-auto mb-4 file-preview flex items-center gap-4 bg-white p-3 rounded-2xl border border-[#a89078]/30 shadow-md">
+                                            {attachedFile.preview ? <img src={attachedFile.preview} className="w-10 h-10 rounded-lg object-cover" /> : <div className="w-10 h-10 bg-[#f1f0e8] rounded-lg flex items-center justify-center text-[#a89078]"><Icon name="file"/></div>}
+                                            <div className="flex-1 truncate text-xs font-bold text-[#5c5c54]">{attachedFile.name}</div>
+                                            <button onClick={() => setAttachedFile(null)} className="p-2 text-stone-300 hover:text-red-400"><Icon name="x" size={16}/></button>
+                                        </div>
+                                    )}
+                                    <div className="max-w-4xl mx-auto relative bg-white border-2 border-[#e5e1d5] rounded-2xl p-2 shadow-sm focus-within:border-[#a89078] flex items-end">
+                                        <button onClick={() => fileInputRef.current.click()} className="p-4 text-[#d0cec1] hover:text-[#a89078] transition-colors"><Icon name="clip" size={24}/></button>
+                                        <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} accept="image/*,application/pdf" />
+                                        <textarea className="w-full bg-transparent border-none focus:ring-0 px-2 py-4 text-base resize-none h-16 no-scrollbar" placeholder="上传图片/PDF 或在此详述挑战..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}/>
+                                        <button onClick={handleSend} className="p-4 text-[#d0cec1] hover:text-[#a89078] transition-colors"><Icon name="send" size={24}/></button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className={`w-full lg:w-[480px] bg-white border-l border-[#f0eee0] flex flex-col h-full ${activeTab === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div className="flex-1 overflow-y-auto p-10 lg:p-16 space-y-16 no-scrollbar">
+                                    <h2 className="text-4xl font-serif-sc text-[#5c5c54] mb-3 tracking-tight font-bold">战略推演画布</h2>
+                                    <div className="space-y-14">
+                                        <CanvasCard icon="globe" title="行业背景提炼" content={currentSession.canvasData.industry} />
+                                        <CanvasCard icon="zap" title="主要矛盾识别" content={currentSession.canvasData.problem} />
+                                        <CanvasCard icon="shield" title="思维漏洞评估" content={currentSession.canvasData.risk} />
+                                        <CanvasCard icon="search" title="博弈位与执行" content={currentSession.canvasData.positioning} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+
+                    {showSettings && (
+                        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-6 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+                            <div className="bg-white rounded-3xl p-10 max-w-sm w-full shadow-2xl text-center" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-serif-sc text-2xl mb-4 text-[#5c5c54] font-bold">激活商镜大脑</h3>
+                                <p className="text-[12px] text-stone-400 mb-8 leading-relaxed px-4 text-center">粘贴您的 API Key 以激活导师。在 GitHub 网页版使用时，请确保已正确设置网址限制。</p>
+                                <input type="password" className="w-full border-2 border-stone-100 rounded-xl px-5 py-3 text-sm focus:border-[#a89078] outline-none mb-8 text-center" placeholder="粘贴 API Key (AIza...)" value={customKey} onChange={(e) => {setCustomKey(e.target.value); localStorage.setItem('gemini_api_key_lanlan_final', e.target.value);}} />
+                                <button onClick={() => setShowSettings(false)} className="w-full bg-[#2a2a2a] text-white py-4 rounded-xl text-xs font-bold tracking-[0.2em] shadow-lg">确认激活</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const CanvasCard = ({ icon, title, content }) => (
+            <div className="flex gap-8 items-start group">
+                <div className="w-14 h-14 rounded-full border border-[#f0eee0] flex items-center justify-center shrink-0 text-[#c5c5bd] bg-[#fdfdfd] shadow-sm transition-all duration-500 group-hover:bg-[#2a2a2a] group-hover:text-white"><Icon name={icon} /></div>
+                <div className="flex-1 pt-1"><h4 className="text-[11px] font-bold text-[#b5b5ad] uppercase tracking-[0.2em] mb-4 font-sans">{title}</h4><p className="text-[15px] lg:text-[16px] text-[#6a6a60] font-serif-sc italic leading-relaxed opacity-90">{content}</p></div>
+            </div>
+        );
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
