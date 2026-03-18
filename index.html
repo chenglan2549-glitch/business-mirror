@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>战略智慧导师</title>
+    <!-- 核心驱动库 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+        body { 
+            font-family: 'Noto Sans SC', sans-serif; 
+            background-color: #f8f7f4; 
+            color: #4a4a4a; 
+            margin: 0; 
+            overflow: hidden; 
+            -webkit-tap-highlight-color: transparent; 
+        }
+        .font-serif-sc { font-family: 'Noto Serif SC', serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .sidebar-bg { background-color: #f1f0e8; }
+        .active-session { background-color: #ffffff; border: 1px solid #e5e4da; color: #5c5c54; }
+        .message-fade { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .canvas-card { 
+            background: #ffffff; 
+            border: 1px solid #f0eee0; 
+            padding: 1.5rem; 
+            border-radius: 1.25rem; 
+            box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.03); 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const SYSTEM_PROMPT = `你是一位世界级的战略导师。
+        核心智慧：毛泽东辩证法（矛盾论）、孙子兵法（势、道、术）、现代定位学。
+        任务：分析用户案例，识别“主要矛盾”，给出老辣、深度的战略建议。
+        输出规范：必须严格以 JSON 格式响应：{"reply": "导师的深度回复内容", "canvasUpdate": {"industry": "行业本质", "problem": "核心矛盾", "risk": "思维风险", "positioning": "战略建议"}}。
+        请用中文回复。`;
+
+        const App = () => {
+            const [sessions, setSessions] = useState(() => {
+                const saved = localStorage.getItem('shangjing_pro_final_v3');
+                return saved ? JSON.parse(saved) : [{
+                    id: Date.now(),
+                    title: '新战略推演',
+                    messages: [{ role: 'assistant', content: '您好。我是您的战略导师。我已经为您锁定了免费配额最充裕的 1.5 Flash 引擎，确保您能无间断地进行战略推演。' }],
+                    canvasData: { industry: '待感知...', problem: '待识别...', risk: '待评估...', positioning: '待推演...' }
+                }];
+            });
+            const [currentSessionId, setCurrentSessionId] = useState(sessions[0].id);
+            const [isSidebarOpen, setSidebarOpen] = useState(false);
+            const [input, setInput] = useState('');
+            const [isTyping, setIsTyping] = useState(false);
+            const [activeTab, setActiveTab] = useState('chat');
+            const [customKey, setCustomKey] = useState(localStorage.getItem('gemini_api_key_lanlan_final') || "");
+            const [showSettings, setShowSettings] = useState(false);
+
+            const scrollRef = useRef(null);
+            const currentSession = sessions.find(s => s.id === currentSessionId) || sessions[0];
+
+            useEffect(() => { 
+                localStorage.setItem('shangjing_pro_final_v3', JSON.stringify(sessions)); 
+            }, [sessions]);
+
+            useEffect(() => { 
+                if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; 
+                if (window.lucide) window.lucide.createIcons(); 
+            }, [currentSession.messages, activeTab, isSidebarOpen]);
+
+            const callGemini = async (userText) => {
+                const apiKey = customKey.trim();
+                if (!apiKey) throw new Error('MISSING_KEY');
+                
+                // 优先使用 1.5 Flash，绕过 2.0 的 limit: 0 报错
+                const models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-2.0-flash'];
+                let lastErr = "";
+
+                for (const model of models) {
+                    try {
+                        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts: [{ text: userText }] }],
+                                systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+                                generationConfig: { responseMimeType: "application/json" }
+                            })
+                        });
+
+                        if (response.ok) {
+                            return await response.json();
+                        }
+                        
+                        const errData = await response.json();
+                        const errMsg = errData.error?.message || "Unknown error";
+                        
+                        if (errMsg.includes('referer')) {
+                            throw new Error('网址限制拦截：请检查 Google Cloud 网址限制是否包含当前页面。');
+                        }
+
+                        if (errMsg.includes('quota') || errMsg.includes('not found')) {
+                            lastErr = `[${model}] 额度不足，正在尝试下一个模型...`;
+                            continue;
+                        }
+                        throw new Error(errMsg);
+                    } catch (e) {
+                        if (e.message.includes('网址限制') || e.message.includes('MISSING_KEY')) throw e;
+                        lastErr = e.message;
+                    }
+                }
+                throw new Error(lastErr || "API 响应异常，请检查网络或 Key 有效性。");
+            };
+
+            const handleSend = async () => {
+                if (!input.trim() || isTyping) return;
+                const userText = input;
+                const updatedBefore = sessions.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, { role: 'user', content: userText }] } : s);
+                setSessions(updatedBefore);
+                setInput('');
+                setIsTyping(true);
+
+                try {
+                    const data = await callGemini(userText);
+                    const rawText = data.candidates[0].content.parts[0].text;
+                    const aiData = JSON.parse(rawText.match(/\{[\s\S]*\}/)?.[0] || rawText);
+                    
+                    setSessions(updatedBefore.map(s => s.id === currentSessionId ? { 
+                        ...s, 
+                        title: s.messages.length <= 2 ? userText.slice(0, 10) : s.title,
+                        messages: [...s.messages, { role: 'assistant', content: aiData.reply }],
+                        canvasData: { ...s.canvasData, ...aiData.canvasUpdate }
+                    } : s));
+                } catch (error) {
+                    let msg = `导师状态：${error.message}`;
+                    if (error.message === 'MISSING_KEY') msg = "请点击左下角齿轮填入 API Key。";
+                    setSessions(prev => prev.map(s => s.id === currentSessionId ? { ...s, messages: [...s.messages, { role: 'assistant', content: msg }] } : s));
+                } finally { setIsTyping(false); }
+            };
+
+            return (
+                <div className="flex h-screen overflow-hidden relative selection:bg-[#a89078]/20">
+                    <aside className={`fixed lg:static z-50 h-full sidebar-bg border-r border-[#e5e1d5] flex flex-col w-72 transition-transform duration-300 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-72'}`}>
+                        <div className="p-6">
+                            <button onClick={() => { 
+                                const id = Date.now(); 
+                                setSessions([{ id, title: '新战略', messages: [{role:'assistant', content:'战略实验室已就绪。'}], canvasData: currentSession.canvasData }, ...sessions]); 
+                                setCurrentSessionId(id); 
+                                setSidebarOpen(false); 
+                            }} className="w-full py-3.5 px-4 rounded-2xl border-2 border-dashed border-[#b5b5ad] text-[#8a8a80] hover:border-[#a89078] flex items-center justify-center gap-2 text-sm font-bold">
+                                <i data-lucide="plus" className="w-4 h-4"></i> 新建推演
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-4 space-y-2 no-scrollbar">
+                            {sessions.map(s => (
+                                <div key={s.id} onClick={() => { setCurrentSessionId(s.id); setSidebarOpen(false); }} className={`p-4 rounded-xl cursor-pointer transition-all ${currentSessionId === s.id ? 'active-session shadow-sm' : 'text-[#8a8a80] hover:bg-white/40'}`}>
+                                    <div className="flex items-center gap-3 truncate">
+                                        <i data-lucide="message-square" className="w-4 h-4 shrink-0"></i>
+                                        <span className="text-sm truncate font-medium">{s.title}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="p-8 border-t border-[#e5e1d5] flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-full bg-[#a89078] flex items-center justify-center text-white text-[11px] font-bold shadow-inner">L</div>
+                                <span className="text-xs font-bold text-[#b5b5ad] tracking-widest uppercase">LANLAN</span>
+                            </div>
+                            <button onClick={() => setShowSettings(true)} className="text-[#c5c5bd] hover:text-[#a89078] transition-all transform hover:rotate-90">
+                                <i data-lucide="settings" className="w-5 h-5"></i>
+                            </button>
+                        </div>
+                    </aside>
+                    <main className="flex-1 flex flex-col min-w-0 h-full bg-[#f8f7f4]">
+                        <header className="px-6 py-6 flex justify-between items-center border-b border-[#e5e1d5] bg-[#f8f7f4]/80 backdrop-blur-md sticky top-0 z-30">
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setSidebarOpen(true)} className="p-2 lg:hidden"><i data-lucide="menu" className="w-5 h-5 text-[#a89078]"></i></button>
+                                <h1 className="text-xl lg:text-2xl font-serif-sc tracking-[0.2em] text-[#5c5c54] uppercase font-bold">战略智慧导师</h1>
+                            </div>
+                            <div className="flex bg-[#e9e7dc] p-1 rounded-full border border-[#dcd9cc]">
+                                <button onClick={() => setActiveTab('chat')} className={`px-5 lg:px-8 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'chat' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}>对话</button>
+                                <button onClick={() => setActiveTab('canvas')} className={`px-5 lg:px-8 py-2 rounded-full text-xs font-bold transition-all ${activeTab === 'canvas' ? 'bg-white text-[#5c5c54] shadow-sm' : 'text-[#a0a096]'}`}>画布</button>
+                            </div>
+                        </header>
+                        <div className="flex-1 flex overflow-hidden">
+                            <div className={`flex-1 flex flex-col h-full ${activeTab === 'canvas' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 lg:px-24 py-10 space-y-12 no-scrollbar">
+                                    {currentSession.messages.map((msg, idx) => (
+                                        <div key={idx} className={`flex message-fade ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`flex gap-6 max-w-[95%] lg:max-w-3xl ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${msg.role === 'assistant' ? 'bg-[#2a2a2a] text-[#f8f7f4]' : 'bg-[#a89078] text-white'}`}>
+                                                    {msg.role === 'assistant' ? <i data-lucide="scroll-text" className="w-6 h-6"></i> : <span className="text-[16px] font-bold">L</span>}
+                                                </div>
+                                                <div className={`mt-1.5 leading-relaxed text-[16px] lg:text-[17px] ${msg.role === 'user' ? 'text-[#8a8a80] text-right' : 'text-[#4a4a4a] font-serif-sc italic text-left'}`}>{msg.content}</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {isTyping && <div className="ml-16 flex gap-2"><div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce"></div><div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.2s]"></div><div className="w-1.5 h-1.5 bg-[#a89078] rounded-full animate-bounce [animation-delay:0.4s]"></div></div>}
+                                </div>
+                                <div className="px-6 lg:px-24 pb-12">
+                                    <div className="max-w-4xl mx-auto relative bg-white border-2 border-[#e5e1d5] rounded-2xl p-2 shadow-sm focus-within:border-[#a89078] transition-all flex items-end">
+                                        <textarea className="w-full bg-transparent border-none focus:ring-0 px-5 py-4 text-base resize-none h-16 no-scrollbar" placeholder="在此输入您的战略构思..." value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}/>
+                                        <button onClick={handleSend} className="p-4 text-[#d0cec1] hover:text-[#a89078] transition-colors">
+                                            <i data-lucide="arrow-up-right" className="w-8 h-8"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className={`w-full lg:w-[480px] bg-white border-l border-[#f0eee0] flex flex-col transition-all h-full ${activeTab === 'chat' ? 'hidden lg:flex' : 'flex'}`}>
+                                <div className="flex-1 overflow-y-auto p-10 lg:p-16 space-y-16 no-scrollbar">
+                                    <h2 className="text-4xl font-serif-sc text-[#5c5c54] mb-3 tracking-tight font-bold">战略推演画布</h2>
+                                    <div className="space-y-14">
+                                        <CanvasCard icon="globe" title="行业核心本质" content={currentSession.canvasData.industry} />
+                                        <CanvasCard icon="zap" title="主要矛盾识别" content={currentSession.canvasData.problem} />
+                                        <CanvasCard icon="shield-alert" title="思维漏洞与风险" content={currentSession.canvasData.risk} />
+                                        <CanvasCard icon="search" title="博弈定位与执行" content={currentSession.canvasData.positioning} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                    {showSettings && (
+                        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-6 backdrop-blur-sm" onClick={() => setShowSettings(false)}>
+                            <div className="bg-white rounded-3xl p-10 max-sm w-full shadow-2xl text-center" onClick={e => e.stopPropagation()}>
+                                <h3 className="font-serif-sc text-2xl mb-4 text-[#5c5c54] font-bold">导师大脑配置</h3>
+                                <p className="text-[12px] text-stone-400 mb-8 leading-relaxed px-4 text-center">当前已强制使用 1.5 Flash 模式以确保免费配额可用。请粘贴您的 API Key。</p>
+                                <input type="password" name="apiKey" className="w-full border-2 border-stone-100 rounded-xl px-5 py-3 text-sm focus:border-[#a89078] outline-none mb-8 text-center" placeholder="粘贴您的 API Key (AIza...)" value={customKey} onChange={(e) => {setCustomKey(e.target.value); localStorage.setItem('gemini_api_key_lanlan_final', e.target.value);}} />
+                                <button onClick={() => setShowSettings(false)} className="w-full bg-[#2a2a2a] text-white py-4 rounded-xl text-xs font-bold tracking-[0.2em] shadow-lg">激活战略导师</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const CanvasCard = ({ icon, title, content }) => { 
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, []); 
+            return ( 
+                <div className="flex gap-8 items-start group"> 
+                    <div className="w-14 h-14 rounded-full border border-[#f0eee0] flex items-center justify-center shrink-0 text-[#c5c5bd] bg-[#fdfdfd] shadow-sm">
+                        <i data-lucide={icon} className="w-6 h-6"></i>
+                    </div> 
+                    <div className="flex-1 pt-1">
+                        <h4 className="text-[11px] font-bold text-[#b5b5ad] uppercase tracking-[0.2em] mb-4 font-sans">{title}</h4>
+                        <p className="text-[15px] lg:text-[16px] text-[#6a6a60] font-serif-sc italic leading-relaxed opacity-90">{content}</p>
+                    </div> 
+                </div> 
+            ); 
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
